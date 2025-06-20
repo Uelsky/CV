@@ -518,11 +518,11 @@
 4. Произвел брут директорий и файлов внутреннего ресурса `company.local` с использованием утилиты `ffuf` и словаря `fuzz.txt`.
 
     ```
-    $ http_proxy=<web ip>:1339 ffuf -w fuzz.txt -u http://192.168.46.54/FUZZ -mc 304,200
+    $ http_proxy=<web ip>:1339 ffuf -w fuzz.txt -u http://192.168.46.54/FUZZ -mc 301,200
 
-    ansible => 304
+    ansible => 301
 
-    $ http_proxy=<web ip>:1339 ffuf -w fuzz.txt -u http://192.168.46.54/ansible/FUZZ -mc 304,200
+    $ http_proxy=<web ip>:1339 ffuf -w fuzz.txt -u http://192.168.46.54/ansible/FUZZ -mc 301,200
 
     id_rsa  => 200
 
