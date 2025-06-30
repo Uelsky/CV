@@ -583,6 +583,6 @@
 
 #### Отчет о выполненной работе
 
-[Report.pdf](/res/Отчет.pdf)
+[Report.pdf]([/res/Отчет.pdf](https://github.com/Uelsky/CV/blob/main/res/Report.pdf))
 
 ---
